@@ -59,6 +59,16 @@ linux-dav-todo
    nano config/settings.ini
    ```
 
+## Todo
+
+- [x] Create Todo DAV Client for linux
+   - [x] Add Tasks
+   - [x] Add Refresh Button
+   - [ ] Add Login Page
+   - [ ] Modify Add Task to Have more detailed info (Dates, Summary, Priority)
+- [ ] Pack into Linux Package
+- [ ] Use PyQT6
+
 ## Usage
 To run the application, execute the following command:
 ```
