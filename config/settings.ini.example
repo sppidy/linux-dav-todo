@@ -1,0 +1,6 @@
+[settings]
+dav_server_url = ""
+username = ""
+password = ""
+todo_list_path = ""
+auth_path = ""
