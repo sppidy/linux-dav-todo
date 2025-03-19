@@ -1,150 +1,199 @@
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
-                           QPushButton, QCheckBox, QFormLayout, QGroupBox, QMessageBox)
-from PyQt5.QtCore import Qt, pyqtSignal
 import os
 import configparser
+import gi
 
-class LoginWindow(QDialog):
-    """Login window for DAV server authentication"""
-    
-    loginAccepted = pyqtSignal(dict)
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Connect to DAV Server")
-        self.setMinimumWidth(450)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib, Gio, GObject
+
+class LoginWindow(Gtk.ApplicationWindow):
+    def __init__(self, application):
+        super().__init__(application=application, title="Connect to DAV Server")
         
+        self.set_default_size(450, -1)
         self.credentials = {}
+        self.login_callback = None
+        
         self.setup_ui()
         self.load_saved_credentials()
         
-    def setup_ui(self):
-        """Initialize the UI components"""
-        main_layout = QVBoxLayout(self)
-        
-        # Title
-        title_label = QLabel("Linux DAV Todo")
-        title_label.setStyleSheet("font-size: 20pt; font-weight: bold; margin: 10px;")
-        title_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title_label)
-        
-        # Subtitle
-        subtitle_label = QLabel("Connect to your CalDAV server")
-        subtitle_label.setStyleSheet("font-size: 12pt; margin-bottom: 20px;")
-        subtitle_label.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(subtitle_label)
-        
-        # Server connection group
-        server_group = QGroupBox("Server Connection")
-        server_layout = QFormLayout()
-        
-        # Server URL
-        self.server_url = QLineEdit()
-        self.server_url.setPlaceholderText("https://dav.example.com")
-        server_layout.addRow("Server URL:", self.server_url)
-        
-        # Authentication path
-        self.auth_path = QLineEdit()
-        self.auth_path.setPlaceholderText("/dav.php/principals")
-        server_layout.addRow("Auth Path:", self.auth_path)
-        
-        # Todo list path
-        self.todo_path = QLineEdit()
-        self.todo_path.setPlaceholderText("/dav.php/calendars/username/default/")
-        server_layout.addRow("Todo List Path:", self.todo_path)
-        
-        server_group.setLayout(server_layout)
-        main_layout.addWidget(server_group)
-        
-        # Credentials group
-        creds_group = QGroupBox("Credentials")
-        creds_layout = QFormLayout()
-        
-        # Username
-        self.username = QLineEdit()
-        creds_layout.addRow("Username:", self.username)
-        
-        # Password
-        self.password = QLineEdit()
-        self.password.setEchoMode(QLineEdit.Password)
-        creds_layout.addRow("Password:", self.password)
-        
-        creds_group.setLayout(creds_layout)
-        main_layout.addWidget(creds_group)
-        
-        # Remember me checkbox
-        self.remember_me = QCheckBox("Remember credentials")
-        main_layout.addWidget(self.remember_me)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        
-        self.connect_button = QPushButton("Connect")
-        self.connect_button.setStyleSheet("font-weight: bold; padding: 8px 16px;")
-        self.connect_button.clicked.connect(self.on_connect)
-        
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
-        
-        button_layout.addStretch(1)
-        button_layout.addWidget(self.cancel_button)
-        button_layout.addWidget(self.connect_button)
-        
-        main_layout.addLayout(button_layout)
+    def set_login_callback(self, callback):
+        self.login_callback = callback
     
-    def on_connect(self):
-        """Handle connect button click"""
-        # Validate inputs
+    def setup_ui(self):
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.set_margin_top(20)
+        main_box.set_margin_bottom(20)
+        main_box.set_margin_start(20)
+        main_box.set_margin_end(20)
+        self.set_child(main_box)
+        
+        title_label = Gtk.Label(label="Linux DAV Todo")
+        title_label.add_css_class("title-1")
+        title_label.set_halign(Gtk.Align.CENTER)
+        main_box.append(title_label)
+        
+        subtitle_label = Gtk.Label(label="Connect to your CalDAV server")
+        subtitle_label.add_css_class("subtitle-1")
+        subtitle_label.set_margin_bottom(20)
+        subtitle_label.set_halign(Gtk.Align.CENTER)
+        main_box.append(subtitle_label)
+        
+        server_frame = Gtk.Frame(label="Server Connection")
+        server_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        server_box.set_margin_top(10)
+        server_box.set_margin_bottom(10)
+        server_box.set_margin_start(10)
+        server_box.set_margin_end(10)
+        
+        server_url_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        server_url_label = Gtk.Label(label="Server URL:")
+        server_url_label.set_xalign(0)
+        server_url_label.set_width_chars(15)
+        self.server_url = Gtk.Entry()
+        self.server_url.set_placeholder_text("https://dav.example.com")
+        self.server_url.set_hexpand(True)
+        
+        server_url_box.append(server_url_label)
+        server_url_box.append(self.server_url)
+        server_box.append(server_url_box)
+        
+        auth_path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        auth_path_label = Gtk.Label(label="Auth Path:")
+        auth_path_label.set_xalign(0)
+        auth_path_label.set_width_chars(15)
+        self.auth_path = Gtk.Entry()
+        self.auth_path.set_placeholder_text("/dav.php/principals")
+        self.auth_path.set_hexpand(True)
+        
+        auth_path_box.append(auth_path_label)
+        auth_path_box.append(self.auth_path)
+        server_box.append(auth_path_box)
+        
+        todo_path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        todo_path_label = Gtk.Label(label="Todo List Path:")
+        todo_path_label.set_xalign(0)
+        todo_path_label.set_width_chars(15)
+        self.todo_path = Gtk.Entry()
+        self.todo_path.set_placeholder_text("/dav.php/calendars/username/default/")
+        self.todo_path.set_hexpand(True)
+        
+        todo_path_box.append(todo_path_label)
+        todo_path_box.append(self.todo_path)
+        server_box.append(todo_path_box)
+        
+        server_frame.set_child(server_box)
+        main_box.append(server_frame)
+        
+        creds_frame = Gtk.Frame(label="Credentials")
+        creds_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        creds_box.set_margin_top(10)
+        creds_box.set_margin_bottom(10)
+        creds_box.set_margin_start(10)
+        creds_box.set_margin_end(10)
+        
+        username_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        username_label = Gtk.Label(label="Username:")
+        username_label.set_xalign(0)
+        username_label.set_width_chars(15)
+        self.username = Gtk.Entry()
+        self.username.set_hexpand(True)
+        
+        username_box.append(username_label)
+        username_box.append(self.username)
+        creds_box.append(username_box)
+        
+        password_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        password_label = Gtk.Label(label="Password:")
+        password_label.set_xalign(0)
+        password_label.set_width_chars(15)
+        self.password = Gtk.PasswordEntry()
+        self.password.set_hexpand(True)
+        self.password.set_show_peek_icon(True)
+        
+        password_box.append(password_label)
+        password_box.append(self.password)
+        creds_box.append(password_box)
+        
+        creds_frame.set_child(creds_box)
+        main_box.append(creds_frame)
+        
+        self.remember_me = Gtk.CheckButton(label="Remember credentials")
+        main_box.append(self.remember_me)
+        
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        button_box.set_halign(Gtk.Align.END)
+        button_box.set_margin_top(10)
+        
+        self.cancel_button = Gtk.Button(label="Cancel")
+        self.cancel_button.connect("clicked", self.on_cancel)
+        
+        self.connect_button = Gtk.Button(label="Connect")
+        self.connect_button.add_css_class("suggested-action")
+        self.connect_button.connect("clicked", self.on_connect)
+        
+        button_box.append(self.cancel_button)
+        button_box.append(self.connect_button)
+        
+        main_box.append(button_box)
+    
+    def on_connect(self, button):
         if not self._validate_inputs():
             return
             
-        # Prepare credentials dictionary
         self.credentials = {
-            'server_url': self.server_url.text().strip(),
-            'auth_path': self.auth_path.text().strip(),
-            'todo_list_path': self.todo_path.text().strip(),
-            'username': self.username.text().strip(),
-            'password': self.password.text()
+            'server_url': self.server_url.get_text().strip(),
+            'auth_path': self.auth_path.get_text().strip(),
+            'todo_list_path': self.todo_path.get_text().strip(),
+            'username': self.username.get_text().strip(),
+            'password': self.password.get_text()
         }
         
-        # Save credentials if remember me is checked
-        if self.remember_me.isChecked():
+        if self.remember_me.get_active():
             self.save_credentials()
         
-        # Emit login accepted signal with credentials
-        self.loginAccepted.emit(self.credentials)
-        self.accept()
+        if self.login_callback:
+            self.login_callback(self.credentials)
+        
+        self.close()
+    
+    def on_cancel(self, button):
+        self.close()
     
     def _validate_inputs(self):
-        """Validate input fields"""
-        if not self.server_url.text().strip():
-            QMessageBox.warning(self, "Input Error", "Server URL is required.")
+        if not self.server_url.get_text().strip():
+            self._show_error_dialog("Server URL is required.")
             return False
         
-        if not self.username.text().strip():
-            QMessageBox.warning(self, "Input Error", "Username is required.")
+        if not self.username.get_text().strip():
+            self._show_error_dialog("Username is required.")
             return False
             
-        if not self.password.text():
-            QMessageBox.warning(self, "Input Error", "Password is required.")
+        if not self.password.get_text():
+            self._show_error_dialog("Password is required.")
             return False
             
-        if not self.todo_path.text().strip():
-            QMessageBox.warning(self, "Input Error", "Todo list path is required.")
+        if not self.todo_path.get_text().strip():
+            self._show_error_dialog("Todo list path is required.")
             return False
             
         return True
     
+    def _show_error_dialog(self, message):
+        dialog = Gtk.AlertDialog.new(message)
+        dialog.set_modal(True)
+        dialog.set_alert_type(Gtk.AlertType.WARNING)
+        dialog.set_buttons(["OK"])
+        dialog.set_detail("Please fix this error and try again.")
+        dialog.show(self)
+    
     def save_credentials(self):
-        """Save credentials to settings file"""
         config = configparser.ConfigParser()
         config['settings'] = {
-            'dav_server_url': f'"{self.server_url.text().strip()}"',
-            'username': f'"{self.username.text().strip()}"',
-            'password': f'"{self.password.text()}"',
-            'todo_list_path': f'"{self.todo_path.text().strip()}"',
-            'auth_path': f'"{self.auth_path.text().strip()}"'
+            'dav_server_url': f'"{self.server_url.get_text().strip()}"',
+            'username': f'"{self.username.get_text().strip()}"',
+            'password': f'"{self.password.get_text()}"',
+            'todo_list_path': f'"{self.todo_path.get_text().strip()}"',
+            'auth_path': f'"{self.auth_path.get_text().strip()}"'
         }
         
         config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config')
@@ -157,7 +206,6 @@ class LoginWindow(QDialog):
             config.write(configfile)
     
     def load_saved_credentials(self):
-        """Load saved credentials if available"""
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
         
         if os.path.exists(config_path):
@@ -165,9 +213,9 @@ class LoginWindow(QDialog):
             config.read(config_path)
             
             if 'settings' in config:
-                self.server_url.setText(config['settings'].get('dav_server_url', '').strip('"'))
-                self.username.setText(config['settings'].get('username', '').strip('"'))
-                self.password.setText(config['settings'].get('password', '').strip('"'))
-                self.todo_path.setText(config['settings'].get('todo_list_path', '').strip('"'))
-                self.auth_path.setText(config['settings'].get('auth_path', '').strip('"'))
-                self.remember_me.setChecked(True)
+                self.server_url.set_text(config['settings'].get('dav_server_url', '').strip('"'))
+                self.username.set_text(config['settings'].get('username', '').strip('"'))
+                self.password.set_text(config['settings'].get('password', '').strip('"'))
+                self.todo_path.set_text(config['settings'].get('todo_list_path', '').strip('"'))
+                self.auth_path.set_text(config['settings'].get('auth_path', '').strip('"'))
+                self.remember_me.set_active(True)

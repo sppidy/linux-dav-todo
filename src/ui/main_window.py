@@ -1,28 +1,28 @@
-from PyQt5.QtWidgets import (QMainWindow, QListWidget, QVBoxLayout, QWidget, QPushButton, 
-                           QMessageBox, QInputDialog, QScrollArea, QHBoxLayout, QLabel,
-                           QAction, QToolBar, QSizePolicy)
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QIcon
 import os
-import sys
 import logging
+import gi
+import sys
 
-from src.todo import Todo
-from src.dav_client import DavClient
-from src.utils.config import load_config
-from src.ui.task_widget import TaskWidget
+root_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if root_path not in sys.path:
+    sys.path.insert(0, root_path)
 
-class MainWindow(QMainWindow):
-    # Add a signal to notify about logout
-    logoutRequested = pyqtSignal()
-    
-    def __init__(self, credentials=None):
-        super().__init__()
-        self.setWindowTitle("Linux DAV Todo App")
-        self.setGeometry(100, 100, 800, 600)
-        self.credentials = credentials
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, GLib, Gio, GObject, Gdk
+
+from todo import Todo
+from dav_client import DavClient
+from utils.config import load_config
+from ui.task_widget import TaskWidget
+
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, application, credentials=None):
+        super().__init__(application=application, title="Linux DAV Todo App")
         
-        # Initialize DAV client with credentials
+        self.set_default_size(800, 600)
+        self.credentials = credentials
+        self.logout_callback = None
+        
         if credentials:
             self.dav_client = DavClient(
                 credentials['server_url'],
@@ -32,7 +32,6 @@ class MainWindow(QMainWindow):
                 credentials['auth_path'] if 'auth_path' in credentials else None
             )
         else:
-            # Fallback to config file if no credentials provided (for backward compatibility)
             config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
             self.config = load_config(config_path)
             
@@ -44,251 +43,369 @@ class MainWindow(QMainWindow):
                 self.config['settings']['auth_path'].strip('"') if 'auth_path' in self.config['settings'] else None
             )
         
-        # Initialize UI components
         self._init_ui()
-        self._create_toolbar()
         
-        # Load todos from server
         self.todos = {}
         self.todo_widgets = {}
+        
         self.refresh_todos()
     
-    def _create_toolbar(self):
-        """Create toolbar with user info and logout button"""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        
-        # Add spacer to push content to the right
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        toolbar.addWidget(spacer)
-        
-        # User info label
-        if self.credentials and 'username' in self.credentials:
-            user_label = QLabel(f"Logged in as: {self.credentials['username']}")
-            toolbar.addWidget(user_label)
-            
-            # Add some spacing
-            spacing = QWidget()
-            spacing.setFixedWidth(20)
-            toolbar.addWidget(spacing)
-        
-        # Logout button
-        logout_action = QAction("Logout", self)
-        logout_action.triggered.connect(self.logout)
-        toolbar.addAction(logout_action)
-        
-        self.addToolBar(toolbar)
+    def set_logout_callback(self, callback):
+        self.logout_callback = callback
 
     def _init_ui(self):
-        """Initialize the UI components"""
-        # Main layout
-        main_layout = QVBoxLayout()
+        self._create_header_bar()
         
-        # Header area
-        header = QHBoxLayout()
-        title = QLabel("Your Tasks")
-        title.setStyleSheet("font-size: 18pt; font-weight: bold;")
-        header.addWidget(title)
-        main_layout.addLayout(header)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.set_margin_top(10)
+        main_box.set_margin_bottom(10)
+        main_box.set_margin_start(10)
+        main_box.set_margin_end(10)
         
-        # Tasks area
-        self.tasks_container = QWidget()
-        self.tasks_layout = QVBoxLayout(self.tasks_container)
-        self.tasks_layout.setSpacing(10)
-        self.tasks_layout.setContentsMargins(10, 10, 10, 10)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        title_label = Gtk.Label(label="Your Tasks")
+        title_label.add_css_class("title-1")
+        header_box.append(title_label)
         
-        # Scroll area for tasks
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.tasks_container)
-        main_layout.addWidget(scroll)
+        main_box.append(header_box)
         
-        # Button area
-        button_layout = QHBoxLayout()
+        scrolled_window = Gtk.ScrolledWindow()
+        scrolled_window.set_vexpand(True)
+        scrolled_window.set_hexpand(True)
+        scrolled_window.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         
-        # Create buttons with equal size
-        button_width = 200  # Fixed width for both buttons
-        button_height = 40  # Fixed height for consistency
+        self.tasks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        self.tasks_box.set_margin_top(10)
+        self.tasks_box.set_margin_bottom(10)
+        self.tasks_box.set_margin_start(10)
+        self.tasks_box.set_margin_end(10)
         
-        self.add_button = QPushButton("Add New Task")
-        self.add_button.setFixedSize(button_width, button_height)  # Set fixed size
-        self.add_button.setStyleSheet("font-weight: bold; padding: 10px;")
-        self.add_button.clicked.connect(self.add_todo)
+        scrolled_window.set_child(self.tasks_box)
+        main_box.append(scrolled_window)
         
-        self.refresh_button = QPushButton("Refresh Tasks")
-        self.refresh_button.setFixedSize(button_width, button_height)  # Same fixed size
-        self.refresh_button.setStyleSheet("padding: 10px;")
-        self.refresh_button.clicked.connect(self.refresh_todos)
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        button_box.set_halign(Gtk.Align.CENTER)
+        button_box.set_margin_top(10)
         
-        # Add buttons with spacers for better layout
-        button_layout.addStretch(1)  # Add stretch before buttons
-        button_layout.addWidget(self.add_button)
-        button_layout.addSpacing(20)  # Space between buttons
-        button_layout.addWidget(self.refresh_button)
-        button_layout.addStretch(1)  # Add stretch after buttons
+        self.add_button = Gtk.Button(label="Add New Task")
+        self.add_button.add_css_class("suggested-action")
+        self.add_button.connect("clicked", self.on_add_clicked)
         
-        main_layout.addLayout(button_layout)
+        self.refresh_button = Gtk.Button(label="Refresh Tasks")
+        self.refresh_button.connect("clicked", self.on_refresh_clicked)
         
-        # Status bar
-        self.statusBar().showMessage("Ready")
+        button_box.append(self.add_button)
+        button_box.append(self.refresh_button)
         
-        # Set the main widget
-        container = QWidget()
-        container.setLayout(main_layout)
-        self.setCentralWidget(container)
-
-    def add_todo(self):
-        title, ok = QInputDialog.getText(self, "Add Task", "Enter task title:")
-        if ok and title:
-            description, ok = QInputDialog.getText(self, "Add Task", "Enter description (optional):")
+        main_box.append(button_box)
+        
+        self.statusbar = Gtk.Statusbar()
+        self.statusbar_context = self.statusbar.get_context_id("main")
+        main_box.append(self.statusbar)
+        
+        self.set_child(main_box)
+    
+    def _create_header_bar(self):
+        header_bar = Gtk.HeaderBar()
+        
+        if self.credentials and 'username' in self.credentials:
+            user_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            user_label = Gtk.Label(label=f"Logged in as: {self.credentials['username']}")
+            user_box.append(user_label)
+            header_bar.pack_start(user_box)
+        
+        logout_button = Gtk.Button(label="Logout")
+        logout_button.connect("clicked", self.on_logout_clicked)
+        header_bar.pack_end(logout_button)
+        
+        self.set_titlebar(header_bar)
+    
+    def on_add_clicked(self, button):
+        self._show_add_dialog()
+    
+    def on_refresh_clicked(self, button):
+        self.refresh_todos()
+    
+    def on_logout_clicked(self, button):
+        self._show_logout_confirmation()
+    
+    def _show_add_dialog(self):
+        dialog = Gtk.Dialog(title="Add Task", modal=True, transient_for=self)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Add", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        
+        content_area = dialog.get_content_area()
+        content_area.set_margin_top(10)
+        content_area.set_margin_bottom(10)
+        content_area.set_margin_start(10)
+        content_area.set_margin_end(10)
+        content_area.set_spacing(10)
+        
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        title_label = Gtk.Label(label="Title:")
+        title_label.set_xalign(0)
+        title_label.set_width_chars(10)
+        title_entry = Gtk.Entry()
+        title_entry.set_hexpand(True)
+        title_entry.set_activates_default(True)
+        
+        title_box.append(title_label)
+        title_box.append(title_entry)
+        content_area.append(title_box)
+        
+        desc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        desc_label = Gtk.Label(label="Description:")
+        desc_label.set_xalign(0)
+        desc_label.set_width_chars(10)
+        desc_entry = Gtk.Entry()
+        desc_entry.set_hexpand(True)
+        
+        desc_box.append(desc_label)
+        desc_box.append(desc_entry)
+        content_area.append(desc_box)
+        
+        dialog.present()
+        
+        dialog.connect("response", self._on_add_dialog_response, title_entry, desc_entry)
+    
+    def _on_add_dialog_response(self, dialog, response_id, title_entry, desc_entry):
+        if response_id == Gtk.ResponseType.OK:
+            title = title_entry.get_text().strip()
+            description = desc_entry.get_text().strip()
             
-            self.statusBar().showMessage("Adding task to server...")
+            if not title:
+                self._show_error_dialog("Title is required", "Please enter a title for the task.")
+                return
             
-            # Add to server via DAV
+            self._update_status("Adding task to server...")
+            
             if self.dav_client.add_task(title, description):
                 self.refresh_todos()
-                self.statusBar().showMessage("Task added successfully!", 3000)
-            else:
-                QMessageBox.warning(self, "Error", "Failed to add task to server.")
-                self.statusBar().showMessage("Failed to add task", 3000)
-        elif ok:
-            QMessageBox.warning(self, "Input Error", "Please enter a valid title.")
-    
-    def edit_todo(self, uid):
-        task = self.todos.get(uid)
-        if not task:
-            return
-            
-        # Ask for new values
-        new_title, ok = QInputDialog.getText(self, "Edit Task", "Edit title:", text=task.title)
-        if ok:
-            new_description, ok = QInputDialog.getText(self, "Edit Task", "Edit description:", 
-                                                     text=task.description)
-            if ok:
-                status_options = ["NEEDS-ACTION", "COMPLETED", "IN-PROCESS", "CANCELLED"]
-                current_status = task.status.upper()
-                current_index = status_options.index(current_status) if current_status in status_options else 0
+                self._update_status("Task added successfully!")
                 
-                new_status, ok = QInputDialog.getItem(self, "Edit Task", "Select status:", 
-                                                    status_options, current_index, False)
-                if ok:
-                    self.statusBar().showMessage("Updating task...")
-                    
-                    # Update on server
-                    if self.dav_client.update_task(task.href, new_title, new_description, new_status):
-                        self.refresh_todos()
-                        self.statusBar().showMessage("Task updated successfully!", 3000)
-                    else:
-                        QMessageBox.warning(self, "Error", "Failed to update task on server.")
-                        self.statusBar().showMessage("Failed to update task", 3000)
-
-    def delete_todo(self, uid):
+                GLib.timeout_add_seconds(3, self._clear_status)
+            else:
+                self._show_error_dialog("Error", "Failed to add task to server.")
+                self._update_status("Failed to add task")
+        
+        dialog.destroy()
+    
+    def _show_edit_dialog(self, uid):
         task = self.todos.get(uid)
         if not task:
             return
-            
-        # Confirm deletion
-        confirm = QMessageBox.question(
-            self, "Confirm Deletion", 
-            f"Are you sure you want to delete task '{task.title}'?",
-            QMessageBox.Yes | QMessageBox.No
-        )
         
-        if confirm == QMessageBox.Yes:
-            self.statusBar().showMessage("Deleting task...")
+        dialog = Gtk.Dialog(title="Edit Task", modal=True, transient_for=self)
+        dialog.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Save", Gtk.ResponseType.OK)
+        dialog.set_default_response(Gtk.ResponseType.OK)
+        
+        content_area = dialog.get_content_area()
+        content_area.set_margin_top(10)
+        content_area.set_margin_bottom(10)
+        content_area.set_margin_start(10)
+        content_area.set_margin_end(10)
+        content_area.set_spacing(10)
+        
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        title_label = Gtk.Label(label="Title:")
+        title_label.set_xalign(0)
+        title_label.set_width_chars(10)
+        title_entry = Gtk.Entry()
+        title_entry.set_hexpand(True)
+        title_entry.set_text(task.title)
+        title_entry.set_activates_default(True)
+        
+        title_box.append(title_label)
+        title_box.append(title_entry)
+        content_area.append(title_box)
+        
+        desc_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        desc_label = Gtk.Label(label="Description:")
+        desc_label.set_xalign(0)
+        desc_label.set_width_chars(10)
+        desc_entry = Gtk.Entry()
+        desc_entry.set_hexpand(True)
+        desc_entry.set_text(task.description)
+        
+        desc_box.append(desc_label)
+        desc_box.append(desc_entry)
+        content_area.append(desc_box)
+        
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        status_label = Gtk.Label(label="Status:")
+        status_label.set_xalign(0)
+        status_label.set_width_chars(10)
+        
+        status_dropdown = Gtk.DropDown.new_from_strings(["NEEDS-ACTION", "COMPLETED", "IN-PROCESS", "CANCELLED"])
+        
+        status_options = ["NEEDS-ACTION", "COMPLETED", "IN-PROCESS", "CANCELLED"]
+        current_status = task.status.upper()
+        current_index = status_options.index(current_status) if current_status in status_options else 0
+        status_dropdown.set_selected(current_index)
+        
+        status_box.append(status_label)
+        status_box.append(status_dropdown)
+        content_area.append(status_box)
+        
+        dialog.present()
+        
+        dialog.connect("response", self._on_edit_dialog_response, uid, title_entry, desc_entry, status_dropdown, status_options)
+    
+    def _on_edit_dialog_response(self, dialog, response_id, uid, title_entry, desc_entry, status_dropdown, status_options):
+        if response_id == Gtk.ResponseType.OK:
+            task = self.todos.get(uid)
+            if not task:
+                dialog.destroy()
+                return
             
-            # Delete from server
+            new_title = title_entry.get_text().strip()
+            new_description = desc_entry.get_text().strip()
+            status_index = status_dropdown.get_selected()
+            new_status = status_options[status_index]
+            
+            if not new_title:
+                self._show_error_dialog("Title is required", "Please enter a title for the task.")
+                return
+            
+            self._update_status("Updating task...")
+            
+            if self.dav_client.update_task(task.href, new_title, new_description, new_status):
+                self.refresh_todos()
+                self._update_status("Task updated successfully!")
+                
+                GLib.timeout_add_seconds(3, self._clear_status)
+            else:
+                self._show_error_dialog("Error", "Failed to update task on server.")
+                self._update_status("Failed to update task")
+        
+        dialog.destroy()
+    
+    def _show_delete_confirmation(self, uid):
+        task = self.todos.get(uid)
+        if not task:
+            return
+        
+        dialog = Gtk.AlertDialog.new(f"Are you sure you want to delete task '{task.title}'?")
+        dialog.set_buttons(["Cancel", "Delete"])
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(1)
+        dialog.set_modal(True)
+        
+        dialog.choose(self, None, self._on_delete_confirmation_response, uid)
+    
+    def _on_delete_confirmation_response(self, dialog, response, uid):
+        if response == 1:
+            task = self.todos.get(uid)
+            if not task:
+                return
+            
+            self._update_status("Deleting task...")
+            
             if self.dav_client.delete_task(task.href):
-                # Remove from local data
                 if uid in self.todos:
                     del self.todos[uid]
                     
-                # Remove widget
                 if uid in self.todo_widgets:
                     widget = self.todo_widgets[uid]
-                    self.tasks_layout.removeWidget(widget)
-                    widget.deleteLater()
+                    self.tasks_box.remove(widget)
                     del self.todo_widgets[uid]
                     
-                self.statusBar().showMessage("Task deleted successfully!", 3000)
+                self._update_status("Task deleted successfully!")
+                
+                GLib.timeout_add_seconds(3, self._clear_status)
             else:
-                QMessageBox.warning(self, "Error", "Failed to delete task from server.")
-                self.statusBar().showMessage("Failed to delete task", 3000)
+                self._show_error_dialog("Error", "Failed to delete task from server.")
+                self._update_status("Failed to delete task")
     
     def update_task_status(self, uid, new_status):
         task = self.todos.get(uid)
         if task:
-            self.statusBar().showMessage("Updating task status...")
+            self._update_status("Updating task status...")
             
             if self.dav_client.update_task(task.href, status=new_status):
                 task.status = new_status
-                self.statusBar().showMessage("Task status updated!", 3000)
+                self._update_status("Task status updated!")
+                
+                GLib.timeout_add_seconds(3, self._clear_status)
             else:
-                QMessageBox.warning(self, "Error", "Failed to update task status.")
-                self.statusBar().showMessage("Failed to update status", 3000)
-                # Revert the UI
+                self._show_error_dialog("Error", "Failed to update task status.")
+                self._update_status("Failed to update status")
+                
                 if uid in self.todo_widgets:
                     self.todo_widgets[uid].update_from_todo(task)
     
     def refresh_todos(self):
         try:
-            self.statusBar().showMessage("Refreshing tasks...")
+            self._update_status("Refreshing tasks...")
             
-            # Clear existing widgets
             for widget in self.todo_widgets.values():
-                self.tasks_layout.removeWidget(widget)
-                widget.deleteLater()
+                self.tasks_box.remove(widget)
             
             self.todo_widgets = {}
             self.todos = {}
             
-            # Check authentication
             if not self.dav_client.authenticate():
-                QMessageBox.critical(self, "Authentication Error", 
-                                    "Failed to connect to DAV server. Check your credentials.")
-                self.statusBar().showMessage("Authentication failed", 3000)
+                self._show_error_dialog("Authentication Error", 
+                                     "Failed to connect to DAV server. Check your credentials.")
+                self._update_status("Authentication failed")
                 return
             
-            # Get tasks from server
             tasks_data = self.dav_client.fetch_tasks()
             
             if not tasks_data:
-                self.tasks_layout.addWidget(QLabel("No tasks found. Add a new task to get started."))
-                self.statusBar().showMessage("No tasks found", 3000)
+                no_tasks_label = Gtk.Label(label="No tasks found. Add a new task to get started.")
+                self.tasks_box.append(no_tasks_label)
+                self._update_status("No tasks found")
                 return
                 
-            # Update UI
             for task_data in tasks_data:
-                # Create Todo object
                 todo = Todo.from_dav_task(task_data)
                 self.todos[todo.uid] = todo
                 
-                # Create and add widget
                 task_widget = TaskWidget(todo)
-                task_widget.statusChanged.connect(self.update_task_status)
-                task_widget.taskDeleted.connect(self.delete_todo)
-                task_widget.taskEdited.connect(self.edit_todo)
+                task_widget.set_on_status_changed(self.update_task_status)
+                task_widget.set_on_task_deleted(self._show_delete_confirmation)
+                task_widget.set_on_task_edited(self._show_edit_dialog)
                 
-                self.tasks_layout.addWidget(task_widget)
+                self.tasks_box.append(task_widget)
                 self.todo_widgets[todo.uid] = task_widget
             
-            self.statusBar().showMessage(f"Loaded {len(tasks_data)} tasks", 3000)
+            self._update_status(f"Loaded {len(tasks_data)} tasks")
+            
+            GLib.timeout_add_seconds(3, self._clear_status)
                 
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
-            self.statusBar().showMessage(f"Error: {str(e)}", 5000)
+            self._show_error_dialog("Error", f"An error occurred: {str(e)}")
+            self._update_status(f"Error: {str(e)}")
     
-    def logout(self):
-        """Handle logout button click"""
-        reply = QMessageBox.question(self, 'Confirm Logout', 
-                                     'Are you sure you want to log out?',
-                                     QMessageBox.Yes | QMessageBox.No, 
-                                     QMessageBox.No)
+    def _show_logout_confirmation(self):
+        dialog = Gtk.AlertDialog.new("Are you sure you want to log out?")
+        dialog.set_buttons(["Cancel", "Logout"])
+        dialog.set_cancel_button(0)
+        dialog.set_default_button(1)
+        dialog.set_modal(True)
         
-        if reply == QMessageBox.Yes:
-            self.logoutRequested.emit()
+        dialog.choose(self, None, self._on_logout_confirmation_response)
+    
+    def _on_logout_confirmation_response(self, dialog, response):
+        if response == 1:
+            if self.logout_callback:
+                self.logout_callback()
             self.close()
     
-    def run(self):
-        self.show()
+    def _show_error_dialog(self, title, message):
+        dialog = Gtk.AlertDialog.new(title)
+        dialog.set_modal(True)
+        dialog.set_buttons(["OK"])
+        dialog.set_detail(message)
+        dialog.show(self)
+    
+    def _update_status(self, message):
+        self.statusbar.remove_all(self.statusbar_context)
+        self.statusbar.push(self.statusbar_context, message)
+    
+    def _clear_status(self):
+        self.statusbar.remove_all(self.statusbar_context)
+        return False

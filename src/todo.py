@@ -8,7 +8,6 @@ class Todo:
         
     @classmethod
     def from_dav_task(cls, task_data):
-        """Create a Todo object from DAV task data"""
         return cls(
             uid=task_data.get('uid'),
             title=task_data.get('title', ''),
@@ -18,7 +17,6 @@ class Todo:
         )
 
     def update(self, title=None, description=None, status=None):
-        """Update todo properties"""
         if title is not None:
             self.title = title
         if description is not None:
@@ -28,7 +26,6 @@ class Todo:
         return self
 
     def to_dict(self):
-        """Convert todo to dictionary"""
         return {
             'uid': self.uid,
             'title': self.title,
@@ -39,12 +36,10 @@ class Todo:
         
     @property
     def is_completed(self):
-        """Check if the todo is completed"""
         return self.status.upper() == 'COMPLETED'
         
     @is_completed.setter
     def is_completed(self, value):
-        """Set the completion status"""
         self.status = 'COMPLETED' if value else 'NEEDS-ACTION'
 
     def __str__(self):

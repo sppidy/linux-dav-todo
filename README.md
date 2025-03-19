@@ -7,8 +7,8 @@ This project is a simple Todo application designed for Linux with support for DA
 - Create, update, and delete todo items.
 - Sync tasks with a DAV server.
 - User-friendly interface for managing tasks.
-- Offline capability with automatic synchronization when connected.
-- Task categorization and priority management.
+- Offline capability with automatic synchronization when connected. (Soon)
+- Task categorization and priority management. (Soon)
 
 ## Project Structure
 ```
@@ -59,7 +59,7 @@ linux-dav-todo/
    ~~cp config/settings.example.ini config/settings.ini~~
    
 ~~2. Edit the configuration file to match your DAV server settings:~~
-  ~~ nano config/settings.ini~~
+  ~~nano config/settings.ini~~
 
 ## Configuration
 
@@ -80,7 +80,6 @@ Use login page
   - [ ] Add notifications for due tasks
 
 ### Technical Improvements
-- [ ] Migrate to PyQT6
 - [ ] Pack into Linux Package (DEB/RPM)
 - [ ] Add offline mode with local storage
 - [ ] Implement secure credential storage

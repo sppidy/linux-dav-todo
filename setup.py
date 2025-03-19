@@ -13,7 +13,7 @@ setup(
         'pywebdav3==0.11.0',
         'configparser>=5.0.0',
         'requests>=2.25.0',
-        'PyQt5>=5.15.0',
+        'PyGObject>=3.42.0',
         'pytest>=6.0.0',
     ],
     entry_points={

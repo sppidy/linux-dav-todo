@@ -1,14 +1,17 @@
 import sys
 import logging
 import os
+import gi
 
+# Add the project root directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt5.QtWidgets import QApplication
-from src.ui.main_window import MainWindow
-from src.ui.login_window import LoginWindow
+gi.require_version('Gtk', '4.0')
+from gi.repository import Gtk, Gio, GLib, Gdk, Adw
 
-# Configure logging
+from ui.login_window import LoginWindow
+from ui.main_window import MainWindow
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -18,34 +21,101 @@ logging.basicConfig(
     ]
 )
 
+class TodoApplication(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.sppidy.linux-dav-todo",
+                         flags=Gio.ApplicationFlags.FLAGS_NONE)
+        
+        self.login_window = None
+        self.main_window = None
+        self.is_dark_theme = False
+        self.css_provider = None
+    
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        
+        self.css_provider = Gtk.CssProvider()
+        
+        self.css_provider.load_from_data("""
+            .task-title-completed {
+                text-decoration: line-through;
+                color: #777777;
+            }
+            
+            .task-title-active {
+                font-weight: bold;
+            }
+            
+            .dark .task-title-active {
+                color: #ffffff;  /* Pure white for maximum contrast in dark mode */
+            }
+            
+            :not(.dark) .task-title-active {
+                color: #2c3e50;
+            }
+            
+            .task-description {
+                margin-left: 24px;
+            }
+            
+            .dark .task-description {
+                color: rgba(255, 255, 255, 0.8);  /* Brighter description text in dark mode */
+            }
+            
+            :not(.dark) .task-description {
+                color: alpha(#2c3e50, 0.7);
+            }
+        """.encode('utf-8'))
+        
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            self.css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        
+        self._detect_theme_preference()
+    
+    def _detect_theme_preference(self):
+        settings = Gtk.Settings.get_default()
+        if settings:
+            self.is_dark_theme = settings.get_property("gtk-application-prefer-dark-theme")
+            logging.info(f"Dark theme preference detected: {self.is_dark_theme}")
+    
+    def _apply_theme_to_window(self, window):
+        if self.is_dark_theme:
+            window.add_css_class("dark")
+        else:
+            window.remove_css_class("dark")
+    
+    def do_activate(self):
+        if not self.login_window:
+            self.login_window = LoginWindow(self)
+            self._apply_theme_to_window(self.login_window)
+            self.login_window.set_login_callback(self.handle_login_success)
+            self.login_window.present()
+    
+    def handle_login_success(self, credentials):
+        if self.login_window:
+            self.login_window.close()
+            
+        self.main_window = MainWindow(self, credentials)
+        self._apply_theme_to_window(self.main_window)
+        self.main_window.set_logout_callback(self.handle_logout)
+        self.main_window.present()
+    
+    def handle_logout(self):
+        if self.main_window:
+            self.main_window.close()
+            self.main_window = None
+        
+        self.login_window = LoginWindow(self)
+        self._apply_theme_to_window(self.login_window)
+        self.login_window.set_login_callback(self.handle_login_success)
+        self.login_window.present()
+
 def main():
-    app = QApplication(sys.argv)
-    
-    login_window = LoginWindow()
-    
-    # Reference to main window (to be created after login)
-    main_window = None
-    
-    def handle_login_success(credentials):
-        """Handle successful login by creating main window"""
-        nonlocal main_window
-        
-        main_window = MainWindow(credentials)
-        main_window.logoutRequested.connect(handle_logout)
-        main_window.show()
-    
-    def handle_logout():
-        """Handle logout request"""
-        if main_window:
-            main_window.close()
-        
-        login_window.show()
-    
-    login_window.loginAccepted.connect(handle_login_success)
-    
-    login_window.show()
-    
-    sys.exit(app.exec_())
+    app = TodoApplication()
+    return app.run(sys.argv)
 
 if __name__ == "__main__":
     main()
