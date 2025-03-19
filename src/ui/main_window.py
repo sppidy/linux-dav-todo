@@ -4,7 +4,7 @@ import gi
 import sys
 
 root_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-if root_path not in sys.path:
+if (root_path not in sys.path):
     sys.path.insert(0, root_path)
 
 gi.require_version('Gtk', '4.0')
@@ -287,18 +287,26 @@ class MainWindow(Gtk.ApplicationWindow):
         if not task:
             return
         
-        dialog = Gtk.AlertDialog.new(f"Are you sure you want to delete task '{task.title}'?")
-        dialog.set_buttons(["Cancel", "Delete"])
-        dialog.set_cancel_button(0)
-        dialog.set_default_button(1)
-        dialog.set_modal(True)
-        
-        dialog.choose(self, None, self._on_delete_confirmation_response, uid)
-    
-    def _on_delete_confirmation_response(self, dialog, response, uid):
-        if response == 1:
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text=f"Are you sure you want to delete task '{task.title}'?")
+        dialog.show()
+        dialog.connect("response", self._on_delete_confirmation_response, uid)
+
+    def _show_logout_confirmation(self):
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text="Are you sure you want to log out?")
+        dialog.show()
+        dialog.connect("response", self._on_logout_response)
+
+    def _show_error_dialog(self, title, message):
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=title)
+        dialog.format_secondary_text(message)
+        dialog.show()
+        dialog.connect("response", self._on_error_response)
+
+    def _on_delete_confirmation_response(self, dialog, response_id, uid):
+        if response_id == Gtk.ResponseType.YES:
             task = self.todos.get(uid)
             if not task:
+                dialog.destroy()
                 return
             
             self._update_status("Deleting task...")
@@ -318,6 +326,8 @@ class MainWindow(Gtk.ApplicationWindow):
             else:
                 self._show_error_dialog("Error", "Failed to delete task from server.")
                 self._update_status("Failed to delete task")
+        
+        dialog.destroy()
     
     def update_task_status(self, uid, new_status):
         task = self.todos.get(uid)
@@ -381,26 +391,15 @@ class MainWindow(Gtk.ApplicationWindow):
             self._update_status(f"Error: {str(e)}")
     
     def _show_logout_confirmation(self):
-        dialog = Gtk.AlertDialog.new("Are you sure you want to log out?")
-        dialog.set_buttons(["Cancel", "Logout"])
-        dialog.set_cancel_button(0)
-        dialog.set_default_button(1)
-        dialog.set_modal(True)
-        
-        dialog.choose(self, None, self._on_logout_confirmation_response)
-    
-    def _on_logout_confirmation_response(self, dialog, response):
-        if response == 1:
-            if self.logout_callback:
-                self.logout_callback()
-            self.close()
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text="Are you sure you want to log out?")
+        dialog.show()
+        dialog.connect("response", self._on_logout_response)
     
     def _show_error_dialog(self, title, message):
-        dialog = Gtk.AlertDialog.new(title)
-        dialog.set_modal(True)
-        dialog.set_buttons(["OK"])
-        dialog.set_detail(message)
-        dialog.show(self)
+        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=title)
+        dialog.format_secondary_text(message)
+        dialog.show()
+        dialog.connect("response", self._on_error_response)
     
     def _update_status(self, message):
         self.statusbar.remove_all(self.statusbar_context)
@@ -409,3 +408,10 @@ class MainWindow(Gtk.ApplicationWindow):
     def _clear_status(self):
         self.statusbar.remove_all(self.statusbar_context)
         return False
+
+    def _on_logout_response(self, dialog, response_id):
+        if response_id == Gtk.ResponseType.YES:
+            if self.logout_callback:
+                self.logout_callback()
+            self.close()
+        dialog.destroy()
