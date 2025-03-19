@@ -1,42 +1,84 @@
 from PyQt5.QtWidgets import (QMainWindow, QListWidget, QVBoxLayout, QWidget, QPushButton, 
-                           QMessageBox, QInputDialog, QScrollArea, QHBoxLayout, QLabel)
-from PyQt5.QtCore import Qt
+                           QMessageBox, QInputDialog, QScrollArea, QHBoxLayout, QLabel,
+                           QAction, QToolBar, QSizePolicy)
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 import os
 import sys
 import logging
 
-# Fix imports to use absolute imports
 from src.todo import Todo
 from src.dav_client import DavClient
 from src.utils.config import load_config
 from src.ui.task_widget import TaskWidget
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    # Add a signal to notify about logout
+    logoutRequested = pyqtSignal()
+    
+    def __init__(self, credentials=None):
         super().__init__()
         self.setWindowTitle("Linux DAV Todo App")
         self.setGeometry(100, 100, 800, 600)
+        self.credentials = credentials
         
-        # Load configuration
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
-        self.config = load_config(config_path)
-        
-        # Initialize DAV client with both paths
-        self.dav_client = DavClient(
-            self.config['settings']['dav_server_url'].strip('"'),
-            self.config['settings']['username'].strip('"'),
-            self.config['settings']['password'].strip('"'),
-            self.config['settings']['todo_list_path'].strip('"'),
-            self.config['settings']['auth_path'].strip('"') if 'auth_path' in self.config['settings'] else None
-        )
+        # Initialize DAV client with credentials
+        if credentials:
+            self.dav_client = DavClient(
+                credentials['server_url'],
+                credentials['username'],
+                credentials['password'],
+                credentials['todo_list_path'],
+                credentials['auth_path'] if 'auth_path' in credentials else None
+            )
+        else:
+            # Fallback to config file if no credentials provided (for backward compatibility)
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+            self.config = load_config(config_path)
+            
+            self.dav_client = DavClient(
+                self.config['settings']['dav_server_url'].strip('"'),
+                self.config['settings']['username'].strip('"'),
+                self.config['settings']['password'].strip('"'),
+                self.config['settings']['todo_list_path'].strip('"'),
+                self.config['settings']['auth_path'].strip('"') if 'auth_path' in self.config['settings'] else None
+            )
         
         # Initialize UI components
         self._init_ui()
+        self._create_toolbar()
         
         # Load todos from server
         self.todos = {}
         self.todo_widgets = {}
         self.refresh_todos()
+    
+    def _create_toolbar(self):
+        """Create toolbar with user info and logout button"""
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setMovable(False)
+        
+        # Add spacer to push content to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        toolbar.addWidget(spacer)
+        
+        # User info label
+        if self.credentials and 'username' in self.credentials:
+            user_label = QLabel(f"Logged in as: {self.credentials['username']}")
+            toolbar.addWidget(user_label)
+            
+            # Add some spacing
+            spacing = QWidget()
+            spacing.setFixedWidth(20)
+            toolbar.addWidget(spacing)
+        
+        # Logout button
+        logout_action = QAction("Logout", self)
+        logout_action.triggered.connect(self.logout)
+        toolbar.addAction(logout_action)
+        
+        self.addToolBar(toolbar)
 
     def _init_ui(self):
         """Initialize the UI components"""
@@ -236,6 +278,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
             self.statusBar().showMessage(f"Error: {str(e)}", 5000)
+    
+    def logout(self):
+        """Handle logout button click"""
+        reply = QMessageBox.question(self, 'Confirm Logout', 
+                                     'Are you sure you want to log out?',
+                                     QMessageBox.Yes | QMessageBox.No, 
+                                     QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            self.logoutRequested.emit()
+            self.close()
     
     def run(self):
         self.show()
