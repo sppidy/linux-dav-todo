@@ -20,9 +20,12 @@
 import os
 import configparser
 import gi
+import logging
 
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gio, GObject
+
+from utils.credentials import CredentialsManager
 
 class LoginWindow(Gtk.ApplicationWindow):
     def __init__(self, application):
@@ -136,8 +139,23 @@ class LoginWindow(Gtk.ApplicationWindow):
         creds_frame.set_child(creds_box)
         main_box.append(creds_frame)
         
+        security_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        security_box.set_margin_top(10)
+        
         self.remember_me = Gtk.CheckButton(label="Remember credentials")
-        main_box.append(self.remember_me)
+        self.use_keyring = Gtk.CheckButton(label="Store password securely in system keyring")
+        self.use_keyring.set_active(True)
+        self.use_keyring.connect("toggled", self.on_use_keyring_toggled)
+        
+        security_box.append(self.remember_me)
+        security_box.append(self.use_keyring)      
+        keyring_note = Gtk.Label(label="Using the system keyring keeps your password secure by storing it in the Linux Secret Service")
+        keyring_note.add_css_class("caption")
+        keyring_note.set_xalign(0)
+        keyring_note.set_wrap(True)
+        security_box.append(keyring_note)
+        
+        main_box.append(security_box)
         
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         button_box.set_halign(Gtk.Align.END)
@@ -155,20 +173,52 @@ class LoginWindow(Gtk.ApplicationWindow):
         
         main_box.append(button_box)
     
+    def on_use_keyring_toggled(self, checkbox):
+        """Handle toggling of the keyring checkbox - update UI accordingly"""
+        if checkbox.get_active():
+            dialog = Gtk.AlertDialog.new("Using Linux Secret Service")
+            dialog.set_modal(True)
+            dialog.set_detail("Your password will be securely stored in the system keyring rather than the config file. This is the recommended option for better security.")
+            dialog.show(self)
+    
     def on_connect(self, button):
         if not self._validate_inputs():
             return
-            
+        
+        server_url = self.server_url.get_text().strip()
+        auth_path = self.auth_path.get_text().strip()
+        todo_path = self.todo_path.get_text().strip()
+        username = self.username.get_text().strip()
+        password = self.password.get_text()
+        remember = self.remember_me.get_active()
+        use_keyring = self.use_keyring.get_active()
+        
         self.credentials = {
-            'server_url': self.server_url.get_text().strip(),
-            'auth_path': self.auth_path.get_text().strip(),
-            'todo_list_path': self.todo_path.get_text().strip(),
-            'username': self.username.get_text().strip(),
-            'password': self.password.get_text()
+            'server_url': server_url,
+            'auth_path': auth_path,
+            'todo_list_path': todo_path,
+            'username': username,
+            'password': password,
         }
         
-        if self.remember_me.get_active():
-            self.save_credentials()
+        if remember:
+            if use_keyring:
+                success = CredentialsManager.save_credentials(
+                    username=username,
+                    password=password,
+                    server_url=server_url,
+                    todo_list_path=todo_path,
+                    auth_path=auth_path,
+                    remember=True
+                )
+                
+                if not success:
+                    self._show_error_dialog(
+                        "Failed to store credentials in keyring",
+                        "Your credentials will be used for this session only."
+                    )
+            else:
+                self.save_credentials_to_file()
         
         if self.login_callback:
             self.login_callback(self.credentials)
@@ -197,22 +247,29 @@ class LoginWindow(Gtk.ApplicationWindow):
             
         return True
     
-    def _show_error_dialog(self, message):
+    def _show_error_dialog(self, message, detail=None):
         dialog = Gtk.AlertDialog.new(message)
         dialog.set_modal(True)
         dialog.set_alert_type(Gtk.AlertType.WARNING)
         dialog.set_buttons(["OK"])
-        dialog.set_detail("Please fix this error and try again.")
+        
+        if detail:
+            dialog.set_detail(detail)
+        else:
+            dialog.set_detail("Please fix this error and try again.")
+            
         dialog.show(self)
     
-    def save_credentials(self):
+    def save_credentials_to_file(self):
+        """Save credentials to a traditional config file (less secure)"""
         config = configparser.ConfigParser()
         config['settings'] = {
             'dav_server_url': f'"{self.server_url.get_text().strip()}"',
             'username': f'"{self.username.get_text().strip()}"',
             'password': f'"{self.password.get_text()}"',
             'todo_list_path': f'"{self.todo_path.get_text().strip()}"',
-            'auth_path': f'"{self.auth_path.get_text().strip()}"'
+            'auth_path': f'"{self.auth_path.get_text().strip()}"',
+            'use_keyring': 'false'  # Explicitly mark as not using keyring
         }
         
         config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config')
@@ -223,18 +280,46 @@ class LoginWindow(Gtk.ApplicationWindow):
         
         with open(config_path, 'w') as configfile:
             config.write(configfile)
+            
+        dialog = Gtk.AlertDialog.new("Security Warning")
+        dialog.set_modal(True)
+        dialog.set_alert_type(Gtk.AlertType.WARNING)
+        dialog.set_detail(
+            "Your password is stored as plain text in the configuration file.\n"
+            "Consider using the secure keyring option for better security."
+        )
+        dialog.set_buttons(["OK"])
+        dialog.show(self)
     
     def load_saved_credentials(self):
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+        """Load credentials using the CredentialsManager or fallback to file"""
+        credentials = CredentialsManager.get_credentials()
         
-        if os.path.exists(config_path):
-            config = configparser.ConfigParser()
-            config.read(config_path)
+        if credentials:
+            self.server_url.set_text(credentials.get('server_url', ''))
+            self.username.set_text(credentials.get('username', ''))
+            self.password.set_text(credentials.get('password', ''))
+            self.todo_path.set_text(credentials.get('todo_list_path', ''))
+            self.auth_path.set_text(credentials.get('auth_path', ''))
+            self.remember_me.set_active(True)
+            self.use_keyring.set_active(CredentialsManager.is_using_keyring())
+        else:
+            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
             
-            if 'settings' in config:
-                self.server_url.set_text(config['settings'].get('dav_server_url', '').strip('"'))
-                self.username.set_text(config['settings'].get('username', '').strip('"'))
-                self.password.set_text(config['settings'].get('password', '').strip('"'))
-                self.todo_path.set_text(config['settings'].get('todo_list_path', '').strip('"'))
-                self.auth_path.set_text(config['settings'].get('auth_path', '').strip('"'))
-                self.remember_me.set_active(True)
+            if os.path.exists(config_path):
+                config = configparser.ConfigParser()
+                config.read(config_path)
+                
+                if 'settings' in config:
+                    self.server_url.set_text(config['settings'].get('dav_server_url', '').strip('"'))
+                    self.username.set_text(config['settings'].get('username', '').strip('"'))
+                    
+                    if 'password' in config['settings']:
+                        self.password.set_text(config['settings'].get('password', '').strip('"'))
+                        
+                    self.todo_path.set_text(config['settings'].get('todo_list_path', '').strip('"'))
+                    self.auth_path.set_text(config['settings'].get('auth_path', '').strip('"'))
+                    self.remember_me.set_active(True)
+                    
+                    use_keyring = config['settings'].get('use_keyring', 'false').lower() == 'true'
+                    self.use_keyring.set_active(use_keyring)

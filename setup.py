@@ -15,6 +15,7 @@ setup(
         'requests>=2.25.0',
         'PyGObject>=3.42.0',
         'pytest>=6.0.0',
+        'keyring>=24.0.0',
     ],
     entry_points={
         'console_scripts': [

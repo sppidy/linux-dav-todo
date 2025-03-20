@@ -80,9 +80,9 @@ Use login page
   - [ ] Add notifications for due tasks
 
 ### Technical Improvements
+- [x] Implement secure credential storage
 - [ ] Pack into Linux Package (DEB/RPM)
 - [ ] Add offline mode with local storage
-- [ ] Implement secure credential storage
 
 ### Future Enhancements
 - [ ] Add task categories/tags

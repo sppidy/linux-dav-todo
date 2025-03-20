@@ -32,6 +32,7 @@ from gi.repository import Gtk, GLib, Gio, GObject, Gdk
 from todo import Todo
 from dav_client import DavClient
 from utils.config import load_config
+from utils.credentials import CredentialsManager
 from ui.task_widget import TaskWidget
 
 class MainWindow(Gtk.ApplicationWindow):
@@ -48,19 +49,40 @@ class MainWindow(Gtk.ApplicationWindow):
                 credentials['username'],
                 credentials['password'],
                 credentials['todo_list_path'],
-                credentials['auth_path'] if 'auth_path' in credentials else None
+                credentials.get('auth_path')
             )
         else:
-            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
-            self.config = load_config(config_path)
-            
-            self.dav_client = DavClient(
-                self.config['settings']['dav_server_url'].strip('"'),
-                self.config['settings']['username'].strip('"'),
-                self.config['settings']['password'].strip('"'),
-                self.config['settings']['todo_list_path'].strip('"'),
-                self.config['settings']['auth_path'].strip('"') if 'auth_path' in self.config['settings'] else None
-            )
+            stored_credentials = CredentialsManager.get_credentials()
+            if stored_credentials:
+                self.credentials = stored_credentials
+                self.dav_client = DavClient(
+                    stored_credentials['server_url'],
+                    stored_credentials['username'],
+                    stored_credentials['password'],
+                    stored_credentials['todo_list_path'],
+                    stored_credentials.get('auth_path')
+                )
+            else:
+                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+                self.config = load_config(config_path)
+                
+                self.credentials = {
+                    'server_url': self.config['settings']['dav_server_url'].strip('"'),
+                    'username': self.config['settings']['username'].strip('"'),
+                    'password': self.config['settings']['password'].strip('"'),
+                    'todo_list_path': self.config['settings']['todo_list_path'].strip('"')
+                }
+                
+                if 'auth_path' in self.config['settings']:
+                    self.credentials['auth_path'] = self.config['settings']['auth_path'].strip('"')
+                
+                self.dav_client = DavClient(
+                    self.credentials['server_url'],
+                    self.credentials['username'],
+                    self.credentials['password'],
+                    self.credentials['todo_list_path'],
+                    self.credentials.get('auth_path')
+                )
         
         self._init_ui()
         
@@ -133,9 +155,26 @@ class MainWindow(Gtk.ApplicationWindow):
             user_box.append(user_label)
             header_bar.pack_start(user_box)
         
-        logout_button = Gtk.Button(label="Logout")
-        logout_button.connect("clicked", self.on_logout_clicked)
-        header_bar.pack_end(logout_button)
+        menu_button = Gtk.MenuButton()
+        menu_button.set_icon_name("open-menu-symbolic")
+        
+        # Create a popup menu
+        menu = Gio.Menu()
+        menu.append("About", "app.about")
+        menu.append("Logout", "app.logout")
+        
+        # Create actions
+        action = Gio.SimpleAction.new("logout", None)
+        action.connect("activate", self.on_logout_clicked)
+        self.add_action(action)
+        
+        about_action = Gio.SimpleAction.new("about", None)
+        about_action.connect("activate", self.on_about_clicked)
+        self.add_action(about_action)
+        
+        # Set up menu button
+        menu_button.set_menu_model(menu)
+        header_bar.pack_end(menu_button)
         
         self.set_titlebar(header_bar)
     
@@ -145,8 +184,23 @@ class MainWindow(Gtk.ApplicationWindow):
     def on_refresh_clicked(self, button):
         self.refresh_todos()
     
-    def on_logout_clicked(self, button):
+    def on_logout_clicked(self, action, param):
         self._show_logout_confirmation()
+    
+    def on_about_clicked(self, action, param):
+        about_dialog = Gtk.AboutDialog()
+        about_dialog.set_transient_for(self)
+        about_dialog.set_modal(True)
+        
+        about_dialog.set_program_name("Linux DAV Todo")
+        about_dialog.set_version("0.0.1")
+        about_dialog.set_copyright("© 2025 Spidy")
+        about_dialog.set_comments("A simple TODO application with DAV support for Linux")
+        about_dialog.set_website("https://github.com/sppidy/linux-dav-todo")
+        about_dialog.set_website_label("GitHub Repository")
+        about_dialog.set_license_type(Gtk.License.LGPL_3_0)
+        
+        about_dialog.show()
     
     def _show_add_dialog(self):
         dialog = Gtk.Dialog(title="Add Task", modal=True, transient_for=self)
@@ -312,6 +366,12 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _show_logout_confirmation(self):
         dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text="Are you sure you want to log out?")
+        dialog.format_secondary_text("Do you want to clear your saved credentials?")
+        
+        content_area = dialog.get_content_area()
+        self.clear_credentials_check = Gtk.CheckButton(label="Clear saved credentials")
+        content_area.append(self.clear_credentials_check)
+        
         dialog.show()
         dialog.connect("response", self._on_logout_response)
 
@@ -409,16 +469,20 @@ class MainWindow(Gtk.ApplicationWindow):
             self._show_error_dialog("Error", f"An error occurred: {str(e)}")
             self._update_status(f"Error: {str(e)}")
     
-    def _show_logout_confirmation(self):
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text="Are you sure you want to log out?")
-        dialog.show()
-        dialog.connect("response", self._on_logout_response)
+    def _on_logout_response(self, dialog, response_id):
+        if response_id == Gtk.ResponseType.YES:
+            if hasattr(self, 'clear_credentials_check') and self.clear_credentials_check.get_active():
+                if 'username' in self.credentials:
+                    CredentialsManager.delete_credentials(self.credentials['username'])
+                    self._update_status("Credentials cleared")
+            
+            if self.logout_callback:
+                self.logout_callback()
+            self.close()
+        dialog.destroy()
     
-    def _show_error_dialog(self, title, message):
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=title)
-        dialog.format_secondary_text(message)
-        dialog.show()
-        dialog.connect("response", self._on_error_response)
+    def _on_error_response(self, dialog, response_id):
+        dialog.destroy()
     
     def _update_status(self, message):
         self.statusbar.remove_all(self.statusbar_context)
@@ -427,10 +491,3 @@ class MainWindow(Gtk.ApplicationWindow):
     def _clear_status(self):
         self.statusbar.remove_all(self.statusbar_context)
         return False
-
-    def _on_logout_response(self, dialog, response_id):
-        if response_id == Gtk.ResponseType.YES:
-            if self.logout_callback:
-                self.logout_callback()
-            self.close()
-        dialog.destroy()
