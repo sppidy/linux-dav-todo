@@ -23,13 +23,14 @@ import gi
 import logging
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gio, GObject
-
+from gi.repository import Gtk, GLib, Gio, GObject, Gdk
 from utils.credentials import CredentialsManager
 
 class LoginWindow(Gtk.ApplicationWindow):
     def __init__(self, application):
-        super().__init__(application=application, title="Connect to DAV Server")
+        super().__init__(application=application)
+        
+        self.set_titlebar(None)
         
         self.set_default_size(450, -1)
         self.credentials = {}
@@ -42,23 +43,15 @@ class LoginWindow(Gtk.ApplicationWindow):
         self.login_callback = callback
     
     def setup_ui(self):
+        main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        
+        self._create_custom_header_bar(main_container)
+        
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         main_box.set_margin_top(20)
         main_box.set_margin_bottom(20)
         main_box.set_margin_start(20)
         main_box.set_margin_end(20)
-        self.set_child(main_box)
-        
-        title_label = Gtk.Label(label="Linux DAV Todo")
-        title_label.add_css_class("title-1")
-        title_label.set_halign(Gtk.Align.CENTER)
-        main_box.append(title_label)
-        
-        subtitle_label = Gtk.Label(label="Connect to your CalDAV server")
-        subtitle_label.add_css_class("subtitle-1")
-        subtitle_label.set_margin_bottom(20)
-        subtitle_label.set_halign(Gtk.Align.CENTER)
-        main_box.append(subtitle_label)
         
         server_frame = Gtk.Frame(label="Server Connection")
         server_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -148,7 +141,8 @@ class LoginWindow(Gtk.ApplicationWindow):
         self.use_keyring.connect("toggled", self.on_use_keyring_toggled)
         
         security_box.append(self.remember_me)
-        security_box.append(self.use_keyring)      
+        security_box.append(self.use_keyring)
+        
         keyring_note = Gtk.Label(label="Using the system keyring keeps your password secure by storing it in the Linux Secret Service")
         keyring_note.add_css_class("caption")
         keyring_note.set_xalign(0)
@@ -172,14 +166,73 @@ class LoginWindow(Gtk.ApplicationWindow):
         button_box.append(self.connect_button)
         
         main_box.append(button_box)
+        
+        main_container.append(main_box)
+        
+        self.set_child(main_container)
+    
+    def _create_custom_header_bar(self, container):
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header_box.add_css_class("header-bar")
+        header_box.set_margin_bottom(10)
+        
+        style_provider = Gtk.CssProvider()
+        css = """
+        .header-bar {
+            background-color: @headerbar_bg_color;
+            padding: 8px 10px;
+            border-bottom: 1px solid alpha(#000, 0.2);
+            min-height: 48px;
+        }
+        .app-title {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .app-subtitle {
+            font-style: italic;
+            font-size: 12px;
+            color: alpha(@text_color, 0.8);
+        }
+        """
+        style_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            style_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        
+        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        title_box.set_hexpand(True)
+        
+        app_title = Gtk.Label(label="Linux DAV Todo")
+        app_title.add_css_class("app-title")
+        app_title.set_xalign(0)
+        title_box.append(app_title)
+        
+        app_subtitle = Gtk.Label(label="Connect to your CalDAV server")
+        app_subtitle.add_css_class("app-subtitle")
+        app_subtitle.set_xalign(0)
+        title_box.append(app_subtitle)
+        
+        header_box.append(title_box)
+        
+        container.append(header_box)
     
     def on_use_keyring_toggled(self, checkbox):
-        """Handle toggling of the keyring checkbox - update UI accordingly"""
         if checkbox.get_active():
-            dialog = Gtk.AlertDialog.new("Using Linux Secret Service")
-            dialog.set_modal(True)
-            dialog.set_detail("Your password will be securely stored in the system keyring rather than the config file. This is the recommended option for better security.")
-            dialog.show(self)
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Using Linux Secret Service"
+            )
+            dialog.format_secondary_text(
+                "Your password will be securely stored in the system keyring rather than the config file. "
+                "This is the recommended option for better security."
+            )
+            dialog.connect("response", lambda dialog, response: dialog.destroy())
+            dialog.show()
     
     def on_connect(self, button):
         if not self._validate_inputs():
@@ -248,20 +301,23 @@ class LoginWindow(Gtk.ApplicationWindow):
         return True
     
     def _show_error_dialog(self, message, detail=None):
-        dialog = Gtk.AlertDialog.new(message)
-        dialog.set_modal(True)
-        dialog.set_alert_type(Gtk.AlertType.WARNING)
-        dialog.set_buttons(["OK"])
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text=message
+        )
         
         if detail:
-            dialog.set_detail(detail)
+            dialog.format_secondary_text(detail)
         else:
-            dialog.set_detail("Please fix this error and try again.")
+            dialog.format_secondary_text("Please fix this error and try again.")
             
-        dialog.show(self)
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.show()
     
     def save_credentials_to_file(self):
-        """Save credentials to a traditional config file (less secure)"""
         config = configparser.ConfigParser()
         config['settings'] = {
             'dav_server_url': f'"{self.server_url.get_text().strip()}"',
@@ -269,7 +325,7 @@ class LoginWindow(Gtk.ApplicationWindow):
             'password': f'"{self.password.get_text()}"',
             'todo_list_path': f'"{self.todo_path.get_text().strip()}"',
             'auth_path': f'"{self.auth_path.get_text().strip()}"',
-            'use_keyring': 'false'  # Explicitly mark as not using keyring
+            'use_keyring': 'false'
         }
         
         config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config')
@@ -281,18 +337,21 @@ class LoginWindow(Gtk.ApplicationWindow):
         with open(config_path, 'w') as configfile:
             config.write(configfile)
             
-        dialog = Gtk.AlertDialog.new("Security Warning")
-        dialog.set_modal(True)
-        dialog.set_alert_type(Gtk.AlertType.WARNING)
-        dialog.set_detail(
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text="Security Warning"
+        )
+        dialog.format_secondary_text(
             "Your password is stored as plain text in the configuration file.\n"
             "Consider using the secure keyring option for better security."
         )
-        dialog.set_buttons(["OK"])
-        dialog.show(self)
+        dialog.connect("response", lambda dialog, response: dialog.destroy())
+        dialog.show()
     
     def load_saved_credentials(self):
-        """Load credentials using the CredentialsManager or fallback to file"""
         credentials = CredentialsManager.get_credentials()
         
         if credentials:

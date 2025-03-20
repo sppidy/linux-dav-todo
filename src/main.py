@@ -16,20 +16,17 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import sys
 import logging
 import os
 import gi
 
-# Add the project root directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw
-
 from ui.login_window import LoginWindow
 from ui.main_window import MainWindow
+from utils.credentials import CredentialsManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +63,7 @@ class TodoApplication(Gtk.Application):
             }
             
             .dark .task-title-active {
-                color: #ffffff;  /* Pure white for maximum contrast in dark mode */
+                color: #ffffff;
             }
             
             :not(.dark) .task-title-active {
@@ -78,7 +75,7 @@ class TodoApplication(Gtk.Application):
             }
             
             .dark .task-description {
-                color: rgba(255, 255, 255, 0.8);  /* Brighter description text in dark mode */
+                color: rgba(255, 255, 255, 0.8);
             }
             
             :not(.dark) .task-description {
@@ -107,15 +104,23 @@ class TodoApplication(Gtk.Application):
             window.remove_css_class("dark")
     
     def do_activate(self):
-        if not self.login_window:
-            self.login_window = LoginWindow(self)
-            self._apply_theme_to_window(self.login_window)
-            self.login_window.set_login_callback(self.handle_login_success)
-            self.login_window.present()
+        credentials = CredentialsManager.get_credentials()
+        
+        if credentials:
+            logging.info("Found stored credentials, attempting auto-login")
+            self.handle_login_success(credentials)
+        else:
+            logging.info("No stored credentials found, showing login window")
+            if not self.login_window:
+                self.login_window = LoginWindow(self)
+                self._apply_theme_to_window(self.login_window)
+                self.login_window.set_login_callback(self.handle_login_success)
+                self.login_window.present()
     
     def handle_login_success(self, credentials):
         if self.login_window:
             self.login_window.close()
+            self.login_window = None
             
         self.main_window = MainWindow(self, credentials)
         self._apply_theme_to_window(self.main_window)

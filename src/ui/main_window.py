@@ -35,9 +35,12 @@ from utils.config import load_config
 from utils.credentials import CredentialsManager
 from ui.task_widget import TaskWidget
 
+
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, application, credentials=None):
-        super().__init__(application=application, title="Linux DAV Todo App")
+        super().__init__(application=application)
+        
+        self.set_titlebar(None)
         
         self.set_default_size(800, 600)
         self.credentials = credentials
@@ -95,7 +98,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self.logout_callback = callback
 
     def _init_ui(self):
-        self._create_header_bar()
+        main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        
+        self._create_custom_header_bar(main_container)
         
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         main_box.set_margin_top(10)
@@ -144,39 +149,86 @@ class MainWindow(Gtk.ApplicationWindow):
         self.statusbar_context = self.statusbar.get_context_id("main")
         main_box.append(self.statusbar)
         
-        self.set_child(main_box)
+        main_container.append(main_box)
+        
+        self.set_child(main_container)
     
-    def _create_header_bar(self):
-        header_bar = Gtk.HeaderBar()
+    def _create_custom_header_bar(self, container):
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header_box.add_css_class("header-bar")
+        header_box.set_margin_bottom(10)
+        
+        style_provider = Gtk.CssProvider()
+        css = """
+        .header-bar {
+            background-color: @headerbar_bg_color;
+            padding: 8px 10px;
+            border-bottom: 1px solid alpha(#000, 0.2);
+            min-height: 48px;
+        }
+        .app-title {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .user-info {
+            font-style: italic;
+            font-size: 12px;
+            color: alpha(@text_color, 0.8);
+        }
+        """
+        style_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            style_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        
+        title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        title_box.set_hexpand(True)
+        
+        app_title = Gtk.Label(label="Linux DAV Todo")
+        app_title.add_css_class("app-title")
+        app_title.set_xalign(0)
+        title_box.append(app_title)
         
         if self.credentials and 'username' in self.credentials:
-            user_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            username_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            username_box.set_margin_start(10)
+            
             user_label = Gtk.Label(label=f"Logged in as: {self.credentials['username']}")
-            user_box.append(user_label)
-            header_bar.pack_start(user_box)
+            user_label.add_css_class("user-info")
+            username_box.append(user_label)
+            title_box.append(username_box)
+        
+        header_box.append(title_box)
+        
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         
-        # Create a popup menu
-        menu = Gio.Menu()
-        menu.append("About", "app.about")
-        menu.append("Logout", "app.logout")
+        action_group = Gio.SimpleActionGroup()
         
-        # Create actions
-        action = Gio.SimpleAction.new("logout", None)
-        action.connect("activate", self.on_logout_clicked)
-        self.add_action(action)
+        logout_action = Gio.SimpleAction.new("logout", None)
+        logout_action.connect("activate", self.on_logout_clicked)
+        action_group.add_action(logout_action)
         
         about_action = Gio.SimpleAction.new("about", None)
         about_action.connect("activate", self.on_about_clicked)
-        self.add_action(about_action)
+        action_group.add_action(about_action)
         
-        # Set up menu button
+        self.insert_action_group("win", action_group)
+        
+        menu = Gio.Menu()
+        menu.append("About", "win.about")
+        menu.append("Logout", "win.logout")
+        
         menu_button.set_menu_model(menu)
-        header_bar.pack_end(menu_button)
+        action_box.append(menu_button)
         
-        self.set_titlebar(header_bar)
+        header_box.append(action_box)
+        
+        container.append(header_box)
     
     def on_add_clicked(self, button):
         self._show_add_dialog()
@@ -360,24 +412,61 @@ class MainWindow(Gtk.ApplicationWindow):
         if not task:
             return
         
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text=f"Are you sure you want to delete task '{task.title}'?")
+        dialog = Gtk.MessageDialog(
+            transient_for=self, 
+            modal=True, 
+            message_type=Gtk.MessageType.QUESTION, 
+            buttons=Gtk.ButtonsType.YES_NO, 
+            text=f"Are you sure you want to delete task '{task.title}'?"
+        )
         dialog.show()
         dialog.connect("response", self._on_delete_confirmation_response, uid)
 
     def _show_logout_confirmation(self):
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.YES_NO, text="Are you sure you want to log out?")
-        dialog.format_secondary_text("Do you want to clear your saved credentials?")
+        dialog = Gtk.MessageDialog(
+            transient_for=self, 
+            modal=True,
+            message_type=Gtk.MessageType.QUESTION, 
+            buttons=Gtk.ButtonsType.YES_NO, 
+            text="Are you sure you want to log out?"
+        )
         
         content_area = dialog.get_content_area()
+        secondary_label = Gtk.Label(label="Do you want to clear your saved credentials?")
+        secondary_label.set_margin_start(10)
+        secondary_label.set_margin_end(10) 
+        secondary_label.set_margin_bottom(10)
+        secondary_label.set_xalign(0)
+        secondary_label.set_wrap(True)
+        content_area.append(secondary_label)
+        
         self.clear_credentials_check = Gtk.CheckButton(label="Clear saved credentials")
+        self.clear_credentials_check.set_margin_start(10)
+        self.clear_credentials_check.set_margin_end(10)
+        self.clear_credentials_check.set_margin_bottom(10)
         content_area.append(self.clear_credentials_check)
         
         dialog.show()
         dialog.connect("response", self._on_logout_response)
 
     def _show_error_dialog(self, title, message):
-        dialog = Gtk.MessageDialog(transient_for=self, modal=True, message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=title)
-        dialog.format_secondary_text(message)
+        dialog = Gtk.MessageDialog(
+            transient_for=self, 
+            modal=True,
+            message_type=Gtk.MessageType.ERROR, 
+            buttons=Gtk.ButtonsType.OK, 
+            text=title
+        )
+        
+        content_area = dialog.get_content_area()
+        message_label = Gtk.Label(label=message)
+        message_label.set_margin_start(10)
+        message_label.set_margin_end(10)
+        message_label.set_margin_bottom(10)
+        message_label.set_xalign(0)
+        message_label.set_wrap(True)
+        content_area.append(message_label)
+        
         dialog.show()
         dialog.connect("response", self._on_error_response)
 
@@ -436,8 +525,10 @@ class MainWindow(Gtk.ApplicationWindow):
             self.todos = {}
             
             if not self.dav_client.authenticate():
-                self._show_error_dialog("Authentication Error", 
-                                     "Failed to connect to DAV server. Check your credentials.")
+                self._show_error_dialog(
+                    "Authentication Error", 
+                    "Failed to connect to DAV server. Check your credentials."
+                )
                 self._update_status("Authentication failed")
                 return
             
