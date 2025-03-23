@@ -23,7 +23,8 @@ import gi
 import logging
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gio, GObject, Gdk
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, GLib, Gio, GObject, Gdk, GdkPixbuf
 from utils.credentials import CredentialsManager
 
 class LoginWindow(Gtk.ApplicationWindow):
@@ -201,19 +202,31 @@ class LoginWindow(Gtk.ApplicationWindow):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
         
+        # Add logo
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        from main import get_asset_path
+        logo_path = get_asset_path("logo.png")
+        if logo_path:
+            app_logo = Gtk.Image.new_from_file(logo_path)
+            app_logo.set_pixel_size(100)  # Set logo size
+            logo_box.append(app_logo)
+        
         title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         title_box.set_hexpand(True)
         
         app_title = Gtk.Label(label="Linux DAV Todo")
         app_title.add_css_class("app-title")
-        app_title.set_xalign(0)
+        app_title.set_xalign(0.5)
+        app_title.set_yalign(0.5)
         title_box.append(app_title)
         
         app_subtitle = Gtk.Label(label="Connect to your CalDAV server")
         app_subtitle.add_css_class("app-subtitle")
-        app_subtitle.set_xalign(0)
+        app_subtitle.set_xalign(0.5)
         title_box.append(app_subtitle)
         
+        # Add logo first, then title box
+        header_box.append(logo_box)
         header_box.append(title_box)
         
         container.append(header_box)

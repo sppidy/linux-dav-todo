@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Linux DAV Todo
+Comment=A simple TODO application with DAV support
+Exec=/usr/local/bin/linux-dav-todo
+Icon=/usr/local/share/icons/linux-dav-todo/logo.png
+Terminal=false
+Categories=Utility;GTK;Office;
+Keywords=Todo;Task;DAV;CalDAV;
+StartupWMClass=linux-dav-todo
+StartupNotify=true

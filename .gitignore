@@ -45,6 +45,31 @@ debug.log
 # Python
 __pycache__/
 *.py[cod]
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Nuitka build files
+*.build/
+*.dist/
+*.onefile-build/
+*.bin
+
+# Arch package files
+*.tar.gz
+*.tar.xz
+*.tar.zst
+*.pkg.tar.zst
+pkg/
+src/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
 *$py.class
 .pytest_cache/
 .coverage
