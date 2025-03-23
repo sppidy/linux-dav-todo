@@ -1,0 +1,97 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version (without v prefix)'
+        required: true
+        type: string
+      type:
+        description: 'Release type'
+        required: true
+        default: 'minor'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Update version in files
+        run: |
+          # Update PKGBUILD version
+          sed -i "s/pkgver=.*/pkgver=${{ github.event.inputs.version }}/g" PKGBUILD
+          
+          # Update version in main window about dialog
+          sed -i "s/about_dialog\.set_version(\"[0-9]*\.[0-9]*\.[0-9]*\")/about_dialog.set_version(\"${{ github.event.inputs.version }}\")/g" src/ui/main_window.py
+          
+          # Update desktop file
+          sed -i "s/Version=.*/Version=${{ github.event.inputs.version }}/g" linux-dav-todo.desktop
+      
+      - name: Generate changelog entry
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREVIOUS_TAG" ]; then
+            echo "CHANGELOG=Initial release v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+            echo "## v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            git log --pretty=format:"* %s" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Update CHANGELOG.md
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          TEMP_FILE=$(mktemp)
+          echo "${{ steps.changelog.outputs.CHANGELOG }}" > $TEMP_FILE
+          echo "" >> $TEMP_FILE
+          cat CHANGELOG.md >> $TEMP_FILE
+          mv $TEMP_FILE CHANGELOG.md
+      
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          commit-message: "Prepare release v${{ github.event.inputs.version }}"
+          title: "Prepare release v${{ github.event.inputs.version }}"
+          body: |
+            This PR prepares for release v${{ github.event.inputs.version }}
+            
+            ## Changes:
+            ${{ steps.changelog.outputs.CHANGELOG }}
+            
+            After merging this PR:
+            1. Create and push a tag: `git tag v${{ github.event.inputs.version }} && git push origin v${{ github.event.inputs.version }}`
+            2. The release workflow will automatically:
+               - Build the binary with Nuitka
+               - Create a proper release package with desktop integration
+               - Create a GitHub release with the package
+          branch: prepare-release-v${{ github.event.inputs.version }}
+          base: main
