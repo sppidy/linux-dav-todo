@@ -27,7 +27,8 @@ if (root_path not in sys.path):
     sys.path.insert(0, root_path)
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gio, GObject, Gdk
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, GLib, Gio, GObject, Gdk, GdkPixbuf
 
 from todo import Todo
 from dav_client import DavClient
@@ -182,6 +183,18 @@ class MainWindow(Gtk.ApplicationWindow):
             style_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+
+        # Add logo
+        logo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        from main import get_asset_path
+        logo_path = get_asset_path("logo.png")
+        if logo_path:
+            app_logo = Gtk.Image.new_from_file(logo_path)
+            app_logo.set_pixel_size(100)  # Set logo size
+            logo_box.append(app_logo)
+            logging.info(f"Loaded logo from: {logo_path}")
+        else:
+            logging.warning("Could not load application logo")
         
         title_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         title_box.set_hexpand(True)
@@ -200,6 +213,8 @@ class MainWindow(Gtk.ApplicationWindow):
             username_box.append(user_label)
             title_box.append(username_box)
         
+        # Add logo first, then title box
+        header_box.append(logo_box)
         header_box.append(title_box)
         
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -251,6 +266,20 @@ class MainWindow(Gtk.ApplicationWindow):
         about_dialog.set_website("https://github.com/sppidy/linux-dav-todo")
         about_dialog.set_website_label("GitHub Repository")
         about_dialog.set_license_type(Gtk.License.LGPL_3_0)
+        
+        # Add logo to About dialog
+        logo_path = os.path.join(root_path, "assets", "logo.png")
+        if os.path.exists(logo_path):
+            try:
+                # Load the logo as pixbuf
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file(logo_path)
+                # Scale it to a reasonable size for the dialog
+                pixbuf = pixbuf.scale_simple(96, 96, GdkPixbuf.InterpType.BILINEAR)
+                # Convert pixbuf to a texture
+                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                about_dialog.set_logo(texture)
+            except Exception as e:
+                logging.warning(f"Failed to set logo in about dialog: {e}")
         
         about_dialog.show()
     
