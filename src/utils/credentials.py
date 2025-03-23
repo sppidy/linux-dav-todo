@@ -28,6 +28,19 @@ class CredentialsManager:
     SERVICE_NAME = 'linux-dav-todo'
     
     @staticmethod
+    def get_config_dir():
+        """Get the XDG config directory for the application"""
+        config_dir = os.path.join(os.path.expanduser('~'), '.config', 'dav-todo')
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir)
+        return config_dir
+
+    @staticmethod
+    def get_config_file_path():
+        """Get the path to the settings.ini file"""
+        return os.path.join(CredentialsManager.get_config_dir(), 'settings.ini')
+    
+    @staticmethod
     def save_credentials(username, password, server_url, todo_list_path, auth_path=None, remember=True):
         """
         Save credentials to the system keyring and optionally to the config file 
@@ -37,11 +50,7 @@ class CredentialsManager:
             keyring.set_password(CredentialsManager.SERVICE_NAME, username, password)
             
             if remember:
-                config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config')
-                if not os.path.exists(config_dir):
-                    os.makedirs(config_dir)
-                
-                config_path = os.path.join(config_dir, 'settings.ini')
+                config_path = CredentialsManager.get_config_file_path()
                 
                 config = ConfigParser()
                 
@@ -76,7 +85,7 @@ class CredentialsManager:
         Returns a dictionary with credentials or None if not found
         """
         try:
-            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+            config_path = CredentialsManager.get_config_file_path()
             
             if not os.path.exists(config_path):
                 return None
@@ -130,7 +139,7 @@ class CredentialsManager:
     def delete_credentials(username=None):
         """Delete credentials from the system keyring and config file"""
         try:
-            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+            config_path = CredentialsManager.get_config_file_path()
             
             if username is None and os.path.exists(config_path):
                 config = ConfigParser()
@@ -156,7 +165,7 @@ class CredentialsManager:
     @staticmethod
     def is_using_keyring():
         """Check if the application is configured to use the system keyring"""
-        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+        config_path = CredentialsManager.get_config_file_path()
         
         if not os.path.exists(config_path):
             return False

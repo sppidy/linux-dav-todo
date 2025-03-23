@@ -66,7 +66,7 @@ class MainWindow(Gtk.ApplicationWindow):
                     stored_credentials.get('auth_path')
                 )
             else:
-                config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+                config_path = CredentialsManager.get_config_file_path()
                 self.config = load_config(config_path)
                 
                 self.credentials = {

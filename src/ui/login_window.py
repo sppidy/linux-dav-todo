@@ -227,10 +227,17 @@ class LoginWindow(Gtk.ApplicationWindow):
                 buttons=Gtk.ButtonsType.OK,
                 text="Using Linux Secret Service"
             )
-            dialog.format_secondary_text(
-                "Your password will be securely stored in the system keyring rather than the config file. "
-                "This is the recommended option for better security."
-            )
+            # Add secondary text using a separate label in GTK4
+            content_area = dialog.get_content_area()
+            secondary_label = Gtk.Label(label="Your password will be securely stored in the system keyring rather than the config file. "
+                "This is the recommended option for better security.")
+            secondary_label.set_margin_start(10)
+            secondary_label.set_margin_end(10)
+            secondary_label.set_margin_bottom(10)
+            secondary_label.set_xalign(0)
+            secondary_label.set_wrap(True)
+            content_area.append(secondary_label)
+            
             dialog.connect("response", lambda dialog, response: dialog.destroy())
             dialog.show()
     
@@ -310,9 +317,25 @@ class LoginWindow(Gtk.ApplicationWindow):
         )
         
         if detail:
-            dialog.format_secondary_text(detail)
+            # Add secondary text using a separate label in GTK4
+            content_area = dialog.get_content_area()
+            secondary_label = Gtk.Label(label=detail)
+            secondary_label.set_margin_start(10)
+            secondary_label.set_margin_end(10)
+            secondary_label.set_margin_bottom(10)
+            secondary_label.set_xalign(0)
+            secondary_label.set_wrap(True)
+            content_area.append(secondary_label)
         else:
-            dialog.format_secondary_text("Please fix this error and try again.")
+            # Add default secondary text
+            content_area = dialog.get_content_area()
+            secondary_label = Gtk.Label(label="Please fix this error and try again.")
+            secondary_label.set_margin_start(10)
+            secondary_label.set_margin_end(10)
+            secondary_label.set_margin_bottom(10)
+            secondary_label.set_xalign(0)
+            secondary_label.set_wrap(True)
+            content_area.append(secondary_label)
             
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.show()
@@ -328,15 +351,15 @@ class LoginWindow(Gtk.ApplicationWindow):
             'use_keyring': 'false'
         }
         
-        config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config')
-        if not os.path.exists(config_dir):
-            os.makedirs(config_dir)
-            
-        config_path = os.path.join(config_dir, 'settings.ini')
+        config_path = CredentialsManager.get_config_file_path()
+        
+        # Create parent directory if it doesn't exist
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
         with open(config_path, 'w') as configfile:
             config.write(configfile)
             
+        # Create dialog with warning message
         dialog = Gtk.MessageDialog(
             transient_for=self,
             modal=True,
@@ -344,10 +367,21 @@ class LoginWindow(Gtk.ApplicationWindow):
             buttons=Gtk.ButtonsType.OK,
             text="Security Warning"
         )
-        dialog.format_secondary_text(
-            "Your password is stored as plain text in the configuration file.\n"
+        
+        # Add secondary text using a separate label in GTK4
+        content_area = dialog.get_content_area()
+        config_location = os.path.join(os.path.expanduser('~'), '.config', 'dav-todo', 'settings.ini')
+        secondary_label = Gtk.Label(
+            label=f"Your password is stored as plain text in {config_location}.\n"
             "Consider using the secure keyring option for better security."
         )
+        secondary_label.set_margin_start(10)
+        secondary_label.set_margin_end(10)
+        secondary_label.set_margin_bottom(10)
+        secondary_label.set_xalign(0)
+        secondary_label.set_wrap(True)
+        content_area.append(secondary_label)
+        
         dialog.connect("response", lambda dialog, response: dialog.destroy())
         dialog.show()
     
@@ -363,7 +397,7 @@ class LoginWindow(Gtk.ApplicationWindow):
             self.remember_me.set_active(True)
             self.use_keyring.set_active(CredentialsManager.is_using_keyring())
         else:
-            config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'config', 'settings.ini')
+            config_path = CredentialsManager.get_config_file_path()
             
             if os.path.exists(config_path):
                 config = configparser.ConfigParser()
